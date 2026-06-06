@@ -1,0 +1,98 @@
+# ============================================================
+# docker-compose.yml — WHY IT EXISTS
+# ============================================================
+# docker-compose orchestrates multi-container apps.
+# Even with just one container, it's cleaner than long `docker run` commands.
+#
+# Without docker-compose, you'd run:
+#   docker run -d -p 8000:8000 -v recruiter_data:/data --name outreach recruiter-outreach
+#
+# With docker-compose, you just run:
+#   docker-compose up
+#
+# It also handles:
+# - Volumes (persistent storage)
+# - Environment variables
+# - Container naming
+# - Restart policies
+# ============================================================
+
+version: "3.9"
+# version: which docker-compose spec version to use
+# 3.9 = current stable, supports all modern features
+
+services:
+  # Services = containers. We have one: 'api'
+  api:
+    # ── Build ──────────────────────────────────────────────
+    build:
+      context: .        # Build from current directory
+      dockerfile: Dockerfile  # Use this Dockerfile
+    
+    # ── Container name ─────────────────────────────────────
+    # Without this, Docker generates a random name like "recruiter-outreach_api_1"
+    container_name: recruiter-outreach
+    
+    # ── Port mapping ───────────────────────────────────────
+    # Format: "HOST_PORT:CONTAINER_PORT"
+    # "8000:8000" means: requests to localhost:8000 on YOUR machine
+    # are forwarded to port 8000 INSIDE the container
+    #
+    # You could change the host port: "9000:8000" would make
+    # the app available at localhost:9000 on your machine
+    ports:
+      - "8000:8000"
+    
+    # ── Volumes ────────────────────────────────────────────
+    # Volumes = persistent storage that survives container restarts/rebuilds
+    #
+    # Format: "VOLUME_NAME:CONTAINER_PATH"
+    # recruiter_data:/data means: Docker manages a named volume 'recruiter_data'
+    # and mounts it at /data inside the container.
+    #
+    # The SQLite database is stored at /data/recruiter.db inside the container.
+    # Even if you stop/delete/recreate the container, the data persists in
+    # the volume (stored on your host machine by Docker).
+    #
+    # Second volume: mounts your LOCAL app/ folder into the container.
+    # This enables --reload to work: when you edit code locally, the container
+    # sees the changes immediately and restarts.
+    # REMOVE THIS in production — bake code into the image instead.
+    volumes:
+      - recruiter_data:/data       # Persistent database
+      - ./app:/app/app             # Live code reload (dev only)
+    
+    # ── Environment variables ──────────────────────────────
+    # These are available as os.getenv("VAR_NAME") inside the container.
+    # We set DATABASE_URL here so the app knows where to find the SQLite file.
+    #
+    # Alternative: use an .env file (see .env.example)
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:////data/recruiter.db
+      # Note: /data/ (no leading /) because the working dir is /app
+      # and /data is mounted from outside
+    
+    # ── Restart policy ─────────────────────────────────────
+    # unless-stopped: automatically restart if the container crashes
+    # (but NOT if you manually stop it with `docker-compose stop`)
+    # Other options: "no" | "always" | "on-failure"
+    restart: unless-stopped
+    
+    # ── Healthcheck ────────────────────────────────────────
+    # Overrides the Dockerfile HEALTHCHECK with compose-specific settings
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s  # Give the app 10s to start before checking
+
+# ── Named volumes declaration ───────────────────────────────────────────────
+# All volumes used in services must be declared here.
+# Docker creates and manages these — you don't need to create folders manually.
+volumes:
+  recruiter_data:
+    # driver: local = stored on your local filesystem
+    # Docker stores it at: /var/lib/docker/volumes/recruiter_data/
+    # (on Mac: inside the Docker Desktop VM)
+    driver: local
